@@ -1888,7 +1888,7 @@ static int dcbnl_cee_get(struct net_device *netdev, struct nlattr **tb,
 	return err;
 }
 
-static int dcb_doit(struct sk_buff *skb, struct nlmsghdr *nlh, void *arg)
+static int dcb_doit(struct sk_buff *skb, struct nlmsghdr *nlh)
 {
 	struct net *net = sock_net(skb->sk);
 	struct net_device *netdev;

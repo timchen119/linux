@@ -1573,10 +1573,10 @@ rtattr_failure:
 /*
  * This is called by both endnodes and routers now.
  */
-static int dn_cache_getroute(struct sk_buff *in_skb, struct nlmsghdr *nlh, void *arg)
+static int dn_cache_getroute(struct sk_buff *in_skb, struct nlmsghdr *nlh)
 {
 	struct net *net = sock_net(in_skb->sk);
-	struct rtattr **rta = arg;
+	struct rtattr **rta = 0;
 	struct rtmsg *rtm = NLMSG_DATA(nlh);
 	struct dn_route *rt = NULL;
 	struct dn_skb_cb *cb;

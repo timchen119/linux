@@ -513,32 +513,6 @@ out:
 	return err;
 }
 
-static const int rtm_min[RTM_NR_FAMILIES] =
-{
-	[RTM_FAM(RTM_NEWLINK)]      = NLMSG_LENGTH(sizeof(struct ifinfomsg)),
-	[RTM_FAM(RTM_NEWADDR)]      = NLMSG_LENGTH(sizeof(struct ifaddrmsg)),
-	[RTM_FAM(RTM_NEWROUTE)]     = NLMSG_LENGTH(sizeof(struct rtmsg)),
-	[RTM_FAM(RTM_NEWRULE)]      = NLMSG_LENGTH(sizeof(struct fib_rule_hdr)),
-	[RTM_FAM(RTM_NEWQDISC)]     = NLMSG_LENGTH(sizeof(struct tcmsg)),
-	[RTM_FAM(RTM_NEWTCLASS)]    = NLMSG_LENGTH(sizeof(struct tcmsg)),
-	[RTM_FAM(RTM_NEWTFILTER)]   = NLMSG_LENGTH(sizeof(struct tcmsg)),
-	[RTM_FAM(RTM_NEWACTION)]    = NLMSG_LENGTH(sizeof(struct tcamsg)),
-	[RTM_FAM(RTM_GETMULTICAST)] = NLMSG_LENGTH(sizeof(struct rtgenmsg)),
-	[RTM_FAM(RTM_GETANYCAST)]   = NLMSG_LENGTH(sizeof(struct rtgenmsg)),
-};
-
-static const int rta_max[RTM_NR_FAMILIES] =
-{
-	[RTM_FAM(RTM_NEWLINK)]      = IFLA_MAX,
-	[RTM_FAM(RTM_NEWADDR)]      = IFA_MAX,
-	[RTM_FAM(RTM_NEWROUTE)]     = RTA_MAX,
-	[RTM_FAM(RTM_NEWRULE)]      = FRA_MAX,
-	[RTM_FAM(RTM_NEWQDISC)]     = TCA_MAX,
-	[RTM_FAM(RTM_NEWTCLASS)]    = TCA_MAX,
-	[RTM_FAM(RTM_NEWTFILTER)]   = TCA_MAX,
-	[RTM_FAM(RTM_NEWACTION)]    = TCAA_MAX,
-};
-
 void __rta_fill(struct sk_buff *skb, int attrtype, int attrlen, const void *data)
 {
 	struct rtattr *rta;
@@ -1528,7 +1502,7 @@ errout:
 	return err;
 }
 
-static int rtnl_setlink(struct sk_buff *skb, struct nlmsghdr *nlh, void *arg)
+static int rtnl_setlink(struct sk_buff *skb, struct nlmsghdr *nlh)
 {
 	struct net *net = sock_net(skb->sk);
 	struct ifinfomsg *ifm;
@@ -1569,7 +1543,7 @@ errout:
 	return err;
 }
 
-static int rtnl_dellink(struct sk_buff *skb, struct nlmsghdr *nlh, void *arg)
+static int rtnl_dellink(struct sk_buff *skb, struct nlmsghdr *nlh)
 {
 	struct net *net = sock_net(skb->sk);
 	const struct rtnl_link_ops *ops;
@@ -1693,7 +1667,7 @@ static int rtnl_group_changelink(struct net *net, int group,
 	return 0;
 }
 
-static int rtnl_newlink(struct sk_buff *skb, struct nlmsghdr *nlh, void *arg)
+static int rtnl_newlink(struct sk_buff *skb, struct nlmsghdr *nlh)
 {
 	struct net *net = sock_net(skb->sk);
 	const struct rtnl_link_ops *ops;
@@ -1846,7 +1820,7 @@ out:
 	}
 }
 
-static int rtnl_getlink(struct sk_buff *skb, struct nlmsghdr* nlh, void *arg)
+static int rtnl_getlink(struct sk_buff *skb, struct nlmsghdr* nlh)
 {
 	struct net *net = sock_net(skb->sk);
 	struct ifinfomsg *ifm;
@@ -1972,10 +1946,6 @@ errout:
 		rtnl_set_sk_err(net, RTNLGRP_LINK, err);
 }
 
-/* Protected by RTNL sempahore.  */
-static struct rtattr **rta_buf;
-static int rtattr_max;
-
 /* Process one rtnetlink message. */
 
 static int rtnetlink_rcv_msg(struct sk_buff *skb, struct nlmsghdr *nlh)
@@ -1983,7 +1953,6 @@ static int rtnetlink_rcv_msg(struct sk_buff *skb, struct nlmsghdr *nlh)
 	struct net *net = sock_net(skb->sk);
 	rtnl_doit_func doit;
 	int sz_idx, kind;
-	int min_len;
 	int family;
 	int type;
 	int err;
@@ -2031,32 +2000,11 @@ static int rtnetlink_rcv_msg(struct sk_buff *skb, struct nlmsghdr *nlh)
 		return err;
 	}
 
-	memset(rta_buf, 0, (rtattr_max * sizeof(struct rtattr *)));
-
-	min_len = rtm_min[sz_idx];
-	if (nlh->nlmsg_len < min_len)
-		return -EINVAL;
-
-	if (nlh->nlmsg_len > min_len) {
-		int attrlen = nlh->nlmsg_len - NLMSG_ALIGN(min_len);
-		struct rtattr *attr = (void *)nlh + NLMSG_ALIGN(min_len);
-
-		while (RTA_OK(attr, attrlen)) {
-			unsigned flavor = attr->rta_type;
-			if (flavor) {
-				if (flavor > rta_max[sz_idx])
-					return -EINVAL;
-				rta_buf[flavor-1] = attr;
-			}
-			attr = RTA_NEXT(attr, attrlen);
-		}
-	}
-
 	doit = rtnl_get_doit(family, type);
 	if (doit == NULL)
 		return -EOPNOTSUPP;
 
-	return doit(skb, nlh, (void *)&rta_buf[0]);
+	return doit(skb, nlh);
 }
 
 static void rtnetlink_rcv(struct sk_buff *skb)
@@ -2120,16 +2068,6 @@ static struct pernet_operations rtnetlink_net_ops = {
 
 void __init rtnetlink_init(void)
 {
-	int i;
-
-	rtattr_max = 0;
-	for (i = 0; i < ARRAY_SIZE(rta_max); i++)
-		if (rta_max[i] > rtattr_max)
-			rtattr_max = rta_max[i];
-	rta_buf = kmalloc(rtattr_max * sizeof(struct rtattr *), GFP_KERNEL);
-	if (!rta_buf)
-		panic("rtnetlink_init: cannot allocate rta_buf\n");
-
 	if (register_pernet_subsys(&rtnetlink_net_ops))
 		panic("rtnetlink_init: cannot initialize rtnetlink\n");
 
